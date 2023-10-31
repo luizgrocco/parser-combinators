@@ -5,14 +5,6 @@ type Result<T, Error> =
   | { ok: true; value: T }
   | { ok: false; err: Error };
 
-// const match = <T, R, S>(
-//   result: Result<T, Error>,
-//   matchOutcomes: {
-//     ok: (input: Result<T, Error>) => R;
-//     fail: (input: Result<T, Error>) => S;
-//   },
-// ) => result.ok ? matchOutcomes.ok(result) : matchOutcomes.fail(result);
-
 // Parser Combinators
 type ParseInput = string;
 type ParseResult<T> = [Result<T, Error>, ParseInput];
@@ -23,7 +15,7 @@ const ok = <T>(
   inputAfterOk: ParseInput,
 ): ParseResult<T> => [{ ok: true, value: result }, inputAfterOk];
 
-const fail = <T>(
+const fail = <T = never>(
   inputAfterFail: ParseInput,
   errMsg = "failed without a message",
 ): ParseResult<T> => [
@@ -68,22 +60,17 @@ Deno.test(function charTest() {
   assertEquals(charZ("z"), fail("z"));
 });
 
-// const literal = (literal: string): Parser<string> =>
-
 const and =
   <T, R>(firstParser: Parser<T>, secondParser: Parser<R>): Parser<[T, R]> =>
   (input: ParseInput) => {
     const [firstResult, firstRemainder] = firstParser(input);
     if (firstResult.ok) {
       const [secondResult, remainder] = secondParser(firstRemainder);
-
-      if (secondResult.ok) {
-        return ok<[T, R]>([firstResult.value, secondResult.value], remainder);
-      } else {
-        return fail<[T, R]>(input, `failed to parse ${input}`);
-      }
+      return secondResult.ok
+        ? ok([firstResult.value, secondResult.value], remainder)
+        : [secondResult, remainder];
     } else {
-      return fail<[T, R]>(input, `failed to parse ${input}`);
+      return [firstResult, firstRemainder];
     }
   };
 
@@ -103,7 +90,7 @@ const or =
     if (firstParseResult[0].ok) return firstParseResult;
     const secondParseResult = secondParser(input);
     if (secondParseResult[0].ok) return secondParseResult;
-    return fail<T | R>(input, `failed to parse ${input}`);
+    return secondParseResult;
   };
 
 Deno.test(function orTest() {
@@ -116,4 +103,54 @@ Deno.test(function orTest() {
   assertEquals(parseLorU("urs"), ok("u", "rs"));
   assertEquals(parseZiorll("zi"), ok(["z", "i"], ""));
   assertEquals(parseZiorll("ll"), ok(["l", "l"], ""));
+});
+
+const map = <T, R>(
+  parser: Parser<T>,
+  fn: (arg: T) => R,
+): Parser<R> =>
+(input: ParseInput) => {
+  const parserResult = parser(input);
+  return parserResult[0].ok
+    ? ok(fn(parserResult[0].value), parserResult[1])
+    : parserResult as ParseResult<R>;
+};
+
+Deno.test(function mapTest() {
+  const charMap = map(char("a"), (char) => ({
+    char,
+  }));
+
+  assertEquals(charMap("a"), ok({ char: "a" }, ""));
+});
+
+const pipe = (...parsers: Parser<string>[]): Parser<string> =>
+(
+  input: ParseInput,
+) => {
+  let inpt = input;
+  let parserResult = "";
+  for (const parser of parsers) {
+    const [result, remainder] = parser(inpt);
+    if (!result.ok) return [result, remainder];
+    parserResult = parserResult.concat(result.value);
+    inpt = remainder;
+  }
+
+  return ok(parserResult, inpt);
+};
+
+Deno.test("pipeTest", () => {
+  const alabamaParser = pipe(
+    or(char("a"), char("b")),
+    char("l"),
+    char("a"),
+    char("b"),
+    char("a"),
+    char("m"),
+    char("a"),
+  );
+
+  assertEquals(alabamaParser("blabama"), ok("blabama", ""));
+  assertEquals(alabamaParser("alabama"), ok("alabama", ""));
 });
