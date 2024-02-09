@@ -124,33 +124,51 @@ Deno.test(function mapTest() {
   assertEquals(charMap("a"), ok({ char: "a" }, ""));
 });
 
-const pipe = (...parsers: Parser<string>[]): Parser<string> =>
-(
-  input: ParseInput,
-) => {
-  let inpt = input;
-  let parserResult = "";
-  for (const parser of parsers) {
-    const [result, remainder] = parser(inpt);
-    if (!result.ok) return [result, remainder];
-    parserResult = parserResult.concat(result.value);
-    inpt = remainder;
-  }
-
-  return ok(parserResult, inpt);
-};
-
-Deno.test("pipeTest", () => {
-  const alabamaParser = pipe(
-    or(char("a"), char("b")),
-    char("l"),
-    char("a"),
-    char("b"),
-    char("a"),
-    char("m"),
-    char("a"),
+// deno-lint-ignore no-explicit-any
+const all = <U, T extends any[]>(
+  firstParser: Parser<U>,
+  ...parsers: { [K in keyof T]: Parser<T[K]> }
+): Parser<[U, ...T]> =>
+  parsers.reduce(
+    (acc, parser) =>
+      map(and(acc, parser), ([results, result]) => [...results, result]),
+    map(firstParser, (result) => [result]),
   );
 
-  assertEquals(alabamaParser("blabama"), ok("blabama", ""));
-  assertEquals(alabamaParser("alabama"), ok("alabama", ""));
+// First implementation allows for 0 parsers to be passed without a type error, that incurs a runtime error
+// const allWrong = <T extends any[]>(
+//   ...parsers: { [K in keyof T]: Parser<T[K]> }
+// ): Parser<[...T]> =>
+//   parsers.reduce(
+//     (acc, parser) =>
+//       map(and(acc, parser), ([results, result]) => [...results, result]),
+//   );
+
+Deno.test(function allTest() {
+  const all_l_u_i_z = all(char("l"), char("u"), char("i"), char("z"));
+  const all_s_o_r_a_i_or_y_a = all(
+    char("s"),
+    char("o"),
+    char("r"),
+    char("a"),
+    or(char("y"), char("i")),
+    char("a"),
+  );
+  const all_b_e_t_o = all(char("b"), char("e"), char("t"), char("o"));
+
+  // Passing cases
+  assertEquals(all_l_u_i_z("luiz"), ok(["l", "u", "i", "z"], ""));
+  assertEquals(
+    all_s_o_r_a_i_or_y_a("soraia"),
+    ok(["s", "o", "r", "a", "i", "a"], ""),
+  );
+  assertEquals(
+    all_s_o_r_a_i_or_y_a("soraya"),
+    ok(["s", "o", "r", "a", "y", "a"], ""),
+  );
+  assertEquals(all_b_e_t_o("beto"), ok(["b", "e", "t", "o"], ""));
+  // Failing cases
+  assertEquals(all_l_u_i_z("luis"), fail("luis"));
+  assertEquals(all_l_u_i_z("ziul"), fail("ziul"));
+  assertEquals(all_b_e_t_o("beta"), fail("beta"));
 });
