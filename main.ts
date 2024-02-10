@@ -124,6 +124,102 @@ Deno.test(function mapTest() {
   assertEquals(charMap("a"), ok({ char: "a" }, ""));
 });
 
+const or =
+  <T, R>(firstParser: Parser<T>, secondParser: Parser<R>): Parser<T | R> =>
+  (input: ParseInput) => {
+    const firstParseResult = firstParser(input);
+    if (firstParseResult[0].ok) return firstParseResult;
+    const secondParseResult = secondParser(input);
+    if (secondParseResult[0].ok) return secondParseResult;
+    return secondParseResult;
+  };
+
+Deno.test(function orTest() {
+  const or_a_b = or(char("a"), char("b"));
+  const or_zi_ll = or(
+    and(char("z"), char("i")),
+    and(char("l"), char("l")),
+  );
+
+  // Passing cases
+  assertEquals(or_a_b("a"), ok("a", ""));
+  assertEquals(or_a_b("b"), ok("b", ""));
+  assertEquals(or_zi_ll("zi"), ok(["z", "i"], ""));
+  assertEquals(or_zi_ll("ll"), ok(["l", "l"], ""));
+  // Failing cases
+  assertEquals(or_a_b("c"), fail("c"));
+  assertEquals(or_a_b("d"), fail("d"));
+  assertEquals(or_zi_ll("iz"), fail("iz"));
+  assertEquals(or_zi_ll("zz"), fail("zz"));
+});
+
+const any =
+  // deno-lint-ignore no-explicit-any
+  <U, T extends any[]>(
+    firstParser: Parser<U>,
+    ...parsers: { [K in keyof T]: Parser<T[K]> }
+  ): Parser<U | T[number]> =>
+  (input: ParseInput) => {
+    let result = firstParser(input);
+    if (!result[0].ok) {
+      for (const parser of parsers) {
+        result = parser(input);
+        if (result[0].ok) return result;
+      }
+    }
+
+    return result;
+  };
+
+Deno.test(function anyTest() {
+  const any_a_b_c = any(char("a"), char("b"), char("c"));
+
+  // Passing cases
+  assertEquals(any_a_b_c("a"), ok("a", ""));
+  assertEquals(any_a_b_c("apple"), ok("a", "pple"));
+  assertEquals(any_a_b_c("b"), ok("b", ""));
+  assertEquals(any_a_b_c("big"), ok("b", "ig"));
+  assertEquals(any_a_b_c("c"), ok("c", ""));
+  assertEquals(any_a_b_c("casa"), ok("c", "asa"));
+  // Failing cases
+  assertEquals(any_a_b_c("d"), fail("d"));
+  assertEquals(any_a_b_c("dado"), fail("dado"));
+  assertEquals(any_a_b_c("Abc"), fail("Abc"));
+  assertEquals(any_a_b_c("Bac"), fail("Bac"));
+  assertEquals(any_a_b_c("Cab"), fail("Cab"));
+  assertEquals(any_a_b_c("ABC"), fail("ABC"));
+});
+
+const and =
+  <T, R>(firstParser: Parser<T>, secondParser: Parser<R>): Parser<[T, R]> =>
+  (input: ParseInput) => {
+    const [firstResult, firstRemainder] = firstParser(input);
+
+    if (firstResult.ok) {
+      const [secondResult, remainder] = secondParser(firstRemainder);
+      return secondResult.ok
+        ? ok([firstResult.value, secondResult.value], remainder)
+        : [secondResult, input];
+    } else {
+      return [firstResult, input];
+    }
+  };
+
+Deno.test(function andTest() {
+  const and_a_b = and(char("a"), char("b"));
+  const and_l_u = and(char("l"), char("u"));
+  const and_zi_ll = and(and(char("z"), char("i")), and(char("l"), char("l")));
+
+  // Passing cases
+  assertEquals(and_a_b("ab"), ok(["a", "b"], ""));
+  assertEquals(and_l_u("luiz"), ok(["l", "u"], "iz"));
+  assertEquals(and_zi_ll("zillow"), ok([["z", "i"], ["l", "l"]], "ow"));
+  // Failing cases
+  assertEquals(and_a_b("ac"), fail("ac"));
+  assertEquals(and_l_u("zu"), fail("zu"));
+  assertEquals(and_zi_ll("zilkow"), fail("zilkow"));
+});
+
 // deno-lint-ignore no-explicit-any
 const all = <U, T extends any[]>(
   firstParser: Parser<U>,
