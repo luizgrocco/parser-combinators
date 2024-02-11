@@ -26,83 +26,94 @@ const fail = <T = never>(
 type Char = string;
 
 const satisfy =
-  (test: (c: Char) => boolean): Parser<string> => (input: ParseInput) =>
-    input.length === 0
-      ? fail(input, `input's length is 0`)
-      : test(input.at(0)!)
-      ? ok(input.at(0)!, input.slice(1))
+  (testFn: (c: Char) => boolean): Parser<Char> => (input: ParseInput) =>
+    input.length > 0 && testFn(input[0])
+      ? ok(input[0], input.slice(1))
       : fail(input, `failed to parse ${input[0]}`);
 
 Deno.test(function satisfyTest() {
-  const satisfyLuiz = satisfy(
+  const satisfy_L_u_i_z = satisfy(
     (c) => ["L", "u", "i", "z"].includes(c),
   );
 
-  assertEquals(satisfyLuiz("L"), ok("L", ""));
-  assertEquals(satisfyLuiz("u"), ok("u", ""));
-  assertEquals(satisfyLuiz("i"), ok("i", ""));
-  assertEquals(satisfyLuiz("z"), ok("z", ""));
-  assertEquals(satisfyLuiz("b"), fail("b"));
-  assertEquals(satisfyLuiz("c"), fail("c"));
-  assertEquals(satisfyLuiz("d"), fail("d"));
+  // Passing cases
+  assertEquals(satisfy_L_u_i_z("L"), ok("L", ""));
+  assertEquals(satisfy_L_u_i_z("u"), ok("u", ""));
+  assertEquals(satisfy_L_u_i_z("i"), ok("i", ""));
+  // Failing cases
+  assertEquals(satisfy_L_u_i_z("b"), fail("b"));
+  assertEquals(satisfy_L_u_i_z("c"), fail("c"));
+  assertEquals(satisfy_L_u_i_z("d"), fail("d"));
 });
 
-const char = (c: Char): Parser<Char> => satisfy((input) => input === c);
+// const char = (c: Char): Parser<Char> => satisfy((input) => input === c);
+const char = <const T>(c: T): Parser<T> => (input: ParseInput) =>
+  input.length > 0 && input[0] === c ? ok(c, input.slice(1)) : fail(
+    input,
+    input.length === 0
+      ? `failed to parse the char ${c} on an empty input`
+      : `failed to parse the char ${c} on input ${input}`,
+  );
 
 Deno.test(function charTest() {
-  const charA = char("a");
-  const charL = char("l");
-  const charZ = char("Z");
-  assertEquals(charA("abc"), ok("a", "bc"));
-  assertEquals(charL("luiz"), ok("l", "uiz"));
-  assertEquals(charL("Luiz"), fail("Luiz"));
-  assertEquals(charZ("Zillow"), ok("Z", "illow"));
-  assertEquals(charZ("z"), fail("z"));
+  const char_a = char("a");
+  const char_l = char("l");
+  const char_Z = char("Z");
+
+  // Passing cases
+  assertEquals(char_a("abc"), ok("a", "bc"));
+  assertEquals(char_l("luiz"), ok("l", "uiz"));
+  assertEquals(char_Z("Zillow"), ok("Z", "illow"));
+  // Failing cases
+  assertEquals(char_l("Luiz"), fail("Luiz"));
+  assertEquals(char_Z("z"), fail("z"));
+  assertEquals(char_a("A"), fail("A"));
 });
 
-const and =
-  <T, R>(firstParser: Parser<T>, secondParser: Parser<R>): Parser<[T, R]> =>
-  (input: ParseInput) => {
-    const [firstResult, firstRemainder] = firstParser(input);
-    if (firstResult.ok) {
-      const [secondResult, remainder] = secondParser(firstRemainder);
-      return secondResult.ok
-        ? ok([firstResult.value, secondResult.value], remainder)
-        : [secondResult, remainder];
-    } else {
-      return [firstResult, firstRemainder];
-    }
-  };
+const EMPTY_STRING = "";
+type EmptyString = typeof EMPTY_STRING;
+const empty: Parser<EmptyString> = (
+  input: ParseInput,
+) => [{ ok: true, value: EMPTY_STRING }, input];
 
-Deno.test(function andTest() {
-  const parseAandB = and(char("a"), char("b"));
-  const parseLandU = and(char("l"), char("u"));
-  const parseZill = and(and(char("z"), char("i")), and(char("l"), char("l")));
-  assertEquals(parseAandB("ab"), ok(["a", "b"], ""));
-  assertEquals(parseLandU("luiz"), ok(["l", "u"], "iz"));
-  assertEquals(parseZill("zillow"), ok([["z", "i"], ["l", "l"]], "ow"));
+Deno.test(function emptyTest() {
+  // Passing cases
+  assertEquals(empty("abc"), ok("", "abc"));
+  assertEquals(empty("luiz"), ok("", "luiz"));
+  assertEquals(empty("Zillow"), ok("", "Zillow"));
+  // Failing cases
+  // Should never fail
 });
 
-const or =
-  <T, R>(firstParser: Parser<T>, secondParser: Parser<R>): Parser<T | R> =>
-  (input: ParseInput) => {
-    const firstParseResult = firstParser(input);
-    if (firstParseResult[0].ok) return firstParseResult;
-    const secondParseResult = secondParser(input);
-    if (secondParseResult[0].ok) return secondParseResult;
-    return secondParseResult;
-  };
+const literal =
+  <T extends string>(literal: T): Parser<T> => (input: ParseInput) =>
+    input.startsWith(literal)
+      ? ok(literal, input.slice(literal.length))
+      : fail(input, `failed to parse literal ${literal} on input ${input}`);
 
-Deno.test(function orTest() {
-  const parseAorB = or(char("a"), char("b"));
-  const parseLorU = or(char("l"), char("u"));
-  const parseZiorll = or(and(char("z"), char("i")), and(char("l"), char("l")));
-  assertEquals(parseAorB("a"), ok("a", ""));
-  assertEquals(parseAorB("b"), ok("b", ""));
-  assertEquals(parseLorU("luiz"), ok("l", "uiz"));
-  assertEquals(parseLorU("urs"), ok("u", "rs"));
-  assertEquals(parseZiorll("zi"), ok(["z", "i"], ""));
-  assertEquals(parseZiorll("ll"), ok(["l", "l"], ""));
+Deno.test(function literalTest() {
+  const literal_beto = literal("beto");
+  const literal_a = literal("a");
+  const literal_longlonglongstring = literal("longlonglongstring");
+  const literal_123 = literal("123");
+
+  // Passing cases
+  assertEquals(literal_beto("beto"), ok("beto", ""));
+  assertEquals(literal_a("abc"), ok("a", "bc"));
+  assertEquals(
+    literal_longlonglongstring("longlonglongstring123"),
+    ok("longlonglongstring", "123"),
+  );
+  assertEquals(literal_123("123456"), ok("123", "456"));
+
+  // Failing cases
+  assertEquals(literal_beto("beta"), fail("beta"));
+  assertEquals(literal_a("A"), fail("A"));
+  assertEquals(
+    literal_longlonglongstring("longextralonglongstring"),
+    fail("longextralonglongstring", ""),
+  );
+  assertEquals(literal_123("124"), fail("124"));
 });
 
 const map = <T, R>(
