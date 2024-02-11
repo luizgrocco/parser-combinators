@@ -121,10 +121,8 @@ const map = <T, R>(
   fn: (arg: T) => R,
 ): Parser<R> =>
 (input: ParseInput) => {
-  const parserResult = parser(input);
-  return parserResult[0].ok
-    ? ok(fn(parserResult[0].value), parserResult[1])
-    : parserResult as ParseResult<R>;
+  const [result, remainder] = parser(input);
+  return result.ok ? ok(fn(result.value), remainder) : [result, remainder];
 };
 
 Deno.test(function mapTest() {
