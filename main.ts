@@ -19,7 +19,7 @@ const fail = <T = never>(
   inputAfterFail: ParseInput,
   errMsg = "failed without a message",
 ): ParseResult<T> => [
-  { ok: false, err: new Error(`[Error]: ${errMsg}`) },
+  { ok: false, err: new Error(errMsg) },
   inputAfterFail,
 ];
 
