@@ -242,15 +242,6 @@ const all = <U, T extends any[]>(
     map(firstParser, (result) => [result]),
   );
 
-// First implementation allows for 0 parsers to be passed without a type error, that incurs a runtime error
-// const allWrong = <T extends any[]>(
-//   ...parsers: { [K in keyof T]: Parser<T[K]> }
-// ): Parser<[...T]> =>
-//   parsers.reduce(
-//     (acc, parser) =>
-//       map(and(acc, parser), ([results, result]) => [...results, result]),
-//   );
-
 Deno.test(function allTest() {
   const all_l_u_i_z = all(char("l"), char("u"), char("i"), char("z"));
   const all_s_o_r_a_i_or_y_a = all(
