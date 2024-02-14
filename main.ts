@@ -136,11 +136,9 @@ Deno.test(function mapTest() {
 const or =
   <T, R>(firstParser: Parser<T>, secondParser: Parser<R>): Parser<T | R> =>
   (input: ParseInput) => {
-    const firstResult = firstParser(input);
-    if (firstResult[0].ok) return firstResult;
-    const secondResult = secondParser(input);
-    if (secondResult[0].ok) return secondResult;
-    return secondResult;
+    const [firstResult, firstRemainder] = firstParser(input);
+    if (firstResult.ok) return [firstResult, firstRemainder];
+    return secondParser(input);
   };
 
 Deno.test(function orTest() {
@@ -169,15 +167,16 @@ const any =
     ...parsers: { [K in keyof T]: Parser<T[K]> }
   ): Parser<U | T[number]> =>
   (input: ParseInput) => {
-    let result = firstParser(input);
-    if (!result[0].ok) {
+    let [result, remainder] = firstParser(input);
+
+    if (!result.ok) {
       for (const parser of parsers) {
-        result = parser(input);
-        if (result[0].ok) return result;
+        [result, remainder] = parser(input);
+        if (result.ok) return [result, remainder];
       }
     }
 
-    return result;
+    return [result, remainder];
   };
 
 Deno.test(function anyTest() {
@@ -204,14 +203,12 @@ const and =
   (input: ParseInput) => {
     const [firstResult, firstRemainder] = firstParser(input);
 
-    if (firstResult.ok) {
-      const [secondResult, remainder] = secondParser(firstRemainder);
-      return secondResult.ok
-        ? ok([firstResult.value, secondResult.value], remainder)
-        : [secondResult, input];
-    } else {
-      return [firstResult, input];
-    }
+    if (!firstResult.ok) return [firstResult, input];
+
+    const [secondResult, remainder] = secondParser(firstRemainder);
+    return secondResult.ok
+      ? ok([firstResult.value, secondResult.value], remainder)
+      : [secondResult, input];
   };
 
 Deno.test(function andTest() {
@@ -289,20 +286,17 @@ Deno.test(function allTest() {
 const many = <T>(parser: Parser<T>): Parser<T[]> => (input: ParseInput) => {
   let [result, remainder] = parser(input);
 
-  if (result.ok) {
-    let inputRemainder = remainder;
-    const resultAcc: T[] = [];
+  if (!result.ok) return [result, remainder];
 
-    do {
-      resultAcc.push(result.value);
-      inputRemainder = remainder;
-      [result, remainder] = parser(inputRemainder);
-    } while (result.ok && inputRemainder.length !== input.length);
+  let inputRemainder = remainder;
+  const resultAcc: T[] = [];
+  do {
+    resultAcc.push(result.value);
+    inputRemainder = remainder;
+    [result, remainder] = parser(inputRemainder);
+  } while (result.ok && inputRemainder.length !== remainder.length);
 
-    return ok(resultAcc, inputRemainder);
-  } else {
-    return [result, remainder];
-  }
+  return ok(resultAcc, inputRemainder);
 };
 
 Deno.test(function manyTest() {
@@ -316,7 +310,7 @@ Deno.test(function manyTest() {
   assertEquals(many_lu("luluana"), ok([["l", "u"], ["l", "u"]], "ana"));
   assertEquals(many_a("aaa"), ok(["a", "a", "a"], ""));
   assertEquals(many_a("aaaAaaa"), ok(["a", "a", "a"], "Aaaa"));
-  assertEquals(many_optional_a("aa"), ok(["aa"], ""));
+  assertEquals(many_optional_a("aa"), ok(["a", "a"], ""));
   assertEquals(many_empty(""), ok<EmptyString[]>([""], ""));
   // Failing cases
   assertEquals(many_lu("lUlu"), fail("lUlu"));
