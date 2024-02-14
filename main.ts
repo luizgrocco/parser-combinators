@@ -136,11 +136,11 @@ Deno.test(function mapTest() {
 const or =
   <T, R>(firstParser: Parser<T>, secondParser: Parser<R>): Parser<T | R> =>
   (input: ParseInput) => {
-    const firstParseResult = firstParser(input);
-    if (firstParseResult[0].ok) return firstParseResult;
-    const secondParseResult = secondParser(input);
-    if (secondParseResult[0].ok) return secondParseResult;
-    return secondParseResult;
+    const firstResult = firstParser(input);
+    if (firstResult[0].ok) return firstResult;
+    const secondResult = secondParser(input);
+    if (secondResult[0].ok) return secondResult;
+    return secondResult;
   };
 
 Deno.test(function orTest() {
@@ -268,3 +268,115 @@ Deno.test(function allTest() {
   assertEquals(all_l_u_i_z("ziul"), fail("ziul"));
   assertEquals(all_b_e_t_o("beta"), fail("beta"));
 });
+
+// const many = <T>(parser: Parser<T>): Parser<T[]> => (input: ParseInput) => {
+//   let remainingInput = input;
+//   const accResult = [];
+//   let [result, remainder] = parser(remainingInput);
+
+//   if (result.ok) {
+//     while (result.ok && remainder.length !== remainingInput.length) {
+//       accResult.push(result.value);
+//       remainingInput = remainder;
+//       [result, remainder] = parser(remainingInput);
+//     }
+//     return ok(accResult, remainingInput);
+//   }
+
+//   return [result, remainder];
+// };
+
+const many = <T>(parser: Parser<T>): Parser<T[]> => (input: ParseInput) => {
+  let [result, remainder] = parser(input);
+
+  if (result.ok) {
+    let inputRemainder = remainder;
+    const resultAcc: T[] = [];
+
+    do {
+      resultAcc.push(result.value);
+      inputRemainder = remainder;
+      [result, remainder] = parser(inputRemainder);
+    } while (result.ok && inputRemainder.length !== input.length);
+
+    return ok(resultAcc, inputRemainder);
+  } else {
+    return [result, remainder];
+  }
+};
+
+Deno.test(function manyTest() {
+  const many_lu = many(and(char("l"), char("u")));
+  const many_a = many(char("a"));
+  const many_optional_a = many(optional(char("a")));
+  const many_empty = many(empty);
+
+  // Passing cases
+  assertEquals(many_lu("lulu"), ok([["l", "u"], ["l", "u"]], ""));
+  assertEquals(many_lu("luluana"), ok([["l", "u"], ["l", "u"]], "ana"));
+  assertEquals(many_a("aaa"), ok(["a", "a", "a"], ""));
+  assertEquals(many_a("aaaAaaa"), ok(["a", "a", "a"], "Aaaa"));
+  assertEquals(many_optional_a("aa"), ok(["aa"], ""));
+  assertEquals(many_empty(""), ok<EmptyString[]>([""], ""));
+  // Failing cases
+  assertEquals(many_lu("lUlu"), fail("lUlu"));
+  assertEquals(many_lu("Lulu"), fail("Lulu"));
+  assertEquals(many_a("Aaa"), fail("Aaa"));
+  assertEquals(many_a(""), fail(""));
+});
+
+const optional = <T>(parser: Parser<T>) => or(parser, empty);
+
+Deno.test(function optionalTest() {
+  const optional_l = optional(char("l"));
+  const optional_plus = optional(char("+"));
+  const optional_many_lu = optional(many(literal("lu")));
+
+  // Passing cases
+  assertEquals(optional_l("k"), ok("", "k"));
+  assertEquals(optional_plus("1"), ok("", "1"));
+  assertEquals(optional_plus("+1"), ok("+", "1"));
+  assertEquals(optional_many_lu("lalala"), ok<EmptyString>("", "lalala"));
+  assertEquals(optional_many_lu("lululu"), ok<"lu"[]>(["lu", "lu", "lu"], ""));
+  // Failing cases
+  // Should never fail
+});
+
+// const not = <T>(parser: Parser<T>): Parser<T> => (input: ParseInput) {
+//   const [result] = parser(input)
+// }
+const precededBy = <T, R>(
+  precedingParser: Parser<T>,
+  parser: Parser<R>,
+): Parser<R> => map(and(precedingParser, parser), ([, result]) => result);
+
+Deno.test(function precededTest() {
+  // Passing cases
+  assertEquals(precededBy(char(","), char("a"))(",a"), ok("a", ""));
+  assertEquals(
+    precededBy(literal("use"), literal("State"))("useState"),
+    ok("State", ""),
+  );
+  assertEquals(
+    precededBy(char("<"), literal("div"))("<div />"),
+    ok("div", " />"),
+  );
+
+  // Failing cases
+  assertEquals(precededBy(char(","), char("a"))(".a"), fail(".a"));
+  assertEquals(
+    precededBy(literal("use"), literal("State"))("usarState"),
+    fail("usarState"),
+  );
+  assertEquals(
+    precededBy(char("<"), literal("div"))("div />"),
+    fail("div />"),
+  );
+});
+
+const succeededBy = <T, R>(
+  succeedingParser: Parser<R>,
+  parser: Parser<T>,
+): Parser<T> => map(and(parser, succeedingParser), ([result]) => result);
+
+// const enclosedBy = <T, R, Q>(precedingParser: Parser<T>, parser: Parser<R>, succeedingParser<Q>): Parser<R> => {}
