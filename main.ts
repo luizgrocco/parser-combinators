@@ -373,4 +373,7 @@ const succeededBy = <T, R>(
   parser: Parser<T>,
 ): Parser<T> => map(and(parser, succeedingParser), ([result]) => result);
 
+Deno.test(function succeededTest() {
+});
+
 // const enclosedBy = <T, R, Q>(precedingParser: Parser<T>, parser: Parser<R>, succeedingParser<Q>): Parser<R> => {}
