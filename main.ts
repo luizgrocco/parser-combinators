@@ -51,8 +51,8 @@ const char = <const T>(c: T): Parser<T> => (input: ParseInput) =>
   input.length > 0 && input[0] === c ? ok(c, input.slice(1)) : fail(
     input,
     input.length === 0
-      ? `failed to parse the char ${c} on an empty input`
-      : `failed to parse the char ${c} on input ${input}`,
+      ? `failed to parse the char "${c}" on an empty input`
+      : `failed to parse the char "${c}" on input "${input}"`,
   );
 
 Deno.test(function charTest() {
@@ -89,7 +89,7 @@ const literal =
   <T extends string>(literal: T): Parser<T> => (input: ParseInput) =>
     input.startsWith(literal)
       ? ok(literal, input.slice(literal.length))
-      : fail(input, `failed to parse literal ${literal} on input ${input}`);
+      : fail(input, `failed to parse literal "${literal}" on input "${input}"`);
 
 Deno.test(function literalTest() {
   const literal_beto = literal("beto");
@@ -160,24 +160,23 @@ Deno.test(function orTest() {
   assertEquals(or_zi_ll("zz"), fail("zz"));
 });
 
-const any =
-  // deno-lint-ignore no-explicit-any
-  <U, T extends any[]>(
-    firstParser: Parser<U>,
-    ...parsers: { [K in keyof T]: Parser<T[K]> }
-  ): Parser<U | T[number]> =>
-  (input: ParseInput) => {
-    let [result, remainder] = firstParser(input);
+// deno-lint-ignore no-explicit-any
+const any = <U, T extends any[]>(
+  firstParser: Parser<U>,
+  ...parsers: { [K in keyof T]: Parser<T[K]> }
+): Parser<U | T[number]> =>
+(input: ParseInput) => {
+  let [result, remainder] = firstParser(input);
 
-    if (!result.ok) {
-      for (const parser of parsers) {
-        [result, remainder] = parser(input);
-        if (result.ok) return [result, remainder];
-      }
+  if (!result.ok) {
+    for (const parser of parsers) {
+      [result, remainder] = parser(input);
+      if (result.ok) return [result, remainder];
     }
+  }
 
-    return [result, remainder];
-  };
+  return [result, remainder];
+};
 
 Deno.test(function anyTest() {
   const any_a_b_c = any(char("a"), char("b"), char("c"));
@@ -266,22 +265,54 @@ Deno.test(function allTest() {
   assertEquals(all_b_e_t_o("beta"), fail("beta"));
 });
 
-// const many = <T>(parser: Parser<T>): Parser<T[]> => (input: ParseInput) => {
-//   let remainingInput = input;
-//   const accResult = [];
-//   let [result, remainder] = parser(remainingInput);
+const exactly = <T>(
+  n: number,
+  parser: Parser<T>,
+): Parser<T[]> =>
+(input: ParseInput) => {
+  let inputRemainder = input;
+  const resultAcc: T[] = [];
 
-//   if (result.ok) {
-//     while (result.ok && remainder.length !== remainingInput.length) {
-//       accResult.push(result.value);
-//       remainingInput = remainder;
-//       [result, remainder] = parser(remainingInput);
-//     }
-//     return ok(accResult, remainingInput);
-//   }
+  for (let i = 0; i < n; i++) {
+    const [result, remaining] = parser(inputRemainder);
 
-//   return [result, remainder];
-// };
+    if (!result.ok) return [result, input];
+
+    resultAcc.push(result.value);
+    inputRemainder = remaining;
+  }
+
+  return ok(resultAcc, inputRemainder);
+};
+
+Deno.test(function exactlyTest() {
+  // Passing cases
+  assertEquals(
+    exactly(3, literal("la"))("lalala"),
+    ok(["la", "la", "la"], ""),
+  );
+  assertEquals(
+    exactly(2, char("z"))("zzzZZzzz"),
+    ok(["z", "z"], "zZZzzz"),
+  );
+  assertEquals(
+    exactly(0, char("a"))("aaaaaa"),
+    ok([], "aaaaaa"),
+  );
+  assertEquals(
+    exactly(-1, char("a"))("aaaaaa"),
+    ok([], "aaaaaa"),
+  );
+  // Failing cases
+  assertEquals(
+    exactly(3, literal("la"))("lalal"),
+    fail("lalal"),
+  );
+  assertEquals(
+    exactly(1, literal("la"))("lululu"),
+    fail("lululu"),
+  );
+});
 
 const many = <T>(parser: Parser<T>): Parser<T[]> => (input: ParseInput) => {
   let [result, remainder] = parser(input);
@@ -344,7 +375,7 @@ const precededBy = <T, R>(
   parser: Parser<R>,
 ): Parser<R> => map(and(precedingParser, parser), ([, result]) => result);
 
-Deno.test(function precededTest() {
+Deno.test(function precededByTest() {
   // Passing cases
   assertEquals(precededBy(char(","), char("a"))(",a"), ok("a", ""));
   assertEquals(
@@ -373,7 +404,88 @@ const succeededBy = <T, R>(
   parser: Parser<T>,
 ): Parser<T> => map(and(parser, succeedingParser), ([result]) => result);
 
-Deno.test(function succeededTest() {
+Deno.test(function succeededByTest() {
+  // Passing cases
+  assertEquals(succeededBy(char(","), char("a"))("a,"), ok("a", ""));
+  assertEquals(
+    succeededBy(literal("/>"), literal("<div "))("<div />"),
+    ok("<div ", ""),
+  );
+  assertEquals(
+    succeededBy(literal("/>"), and(literal("<div"), optional(many(char(" ")))))(
+      "<div    />",
+    ),
+    ok(["<div", [" ", " ", " ", " "]], ""),
+  );
+  // Failing cases
+  assertEquals(succeededBy(char(","), char("a"))("a."), fail("a."));
+  assertEquals(succeededBy(char("b"), char("a"))("ac"), fail("ac"));
+  assertEquals(
+    succeededBy(literal("/>"), literal("<div "))("<div >"),
+    fail("<div >"),
+  );
 });
 
-// const enclosedBy = <T, R, Q>(precedingParser: Parser<T>, parser: Parser<R>, succeedingParser<Q>): Parser<R> => {}
+const enclosedBy = <T, R, Q>(
+  precedingParser: Parser<T>,
+  succeedingParser: Parser<R>,
+  parser: Parser<Q>,
+): Parser<Q> =>
+  precededBy(precedingParser, succeededBy(succeedingParser, parser));
+
+Deno.test(function enclosedByTest() {
+  // Passing cases
+  assertEquals(
+    enclosedBy(char("("), char(")"), literal("luiz"))("(luiz)"),
+    ok("luiz", ""),
+  );
+  assertEquals(
+    enclosedBy(
+      char("<"),
+      and(many(optional(char(" "))), literal("/>")),
+      literal("div"),
+    )("<div     />"),
+    ok("div", ""),
+  );
+  assertEquals(
+    enclosedBy(
+      empty,
+      empty,
+      literal("beto"),
+    )("beto  "),
+    ok("beto", "  "),
+  );
+  // Failing cases
+  assertEquals(
+    enclosedBy(char("("), char(")"), literal("luiz"))("(luiz]"),
+    fail("(luiz]"),
+  );
+  assertEquals(
+    enclosedBy(char("("), char(")"), literal("luiz"))("[luiz)"),
+    fail("[luiz)"),
+  );
+  assertEquals(
+    enclosedBy(char("("), char(")"), literal("luiz"))("(soraya)"),
+    fail("(soraya)"),
+  );
+});
+
+const surroundedBy = <T, Q>(surroundingParser: Parser<T>, parser: Parser<Q>) =>
+  enclosedBy(surroundingParser, surroundingParser, parser);
+
+// TODO: more tests
+Deno.test(function surroundedByTest() {
+  // Passing cases
+  assertEquals(
+    surroundedBy(char('"'), literal("quote"))('"quote"'),
+    ok("quote", ""),
+  );
+  // Failing cases
+  assertEquals(
+    surroundedBy(char('"'), literal("quote"))(`"quote'`),
+    fail(`"quote'`, ""),
+  );
+});
+
+const spaced = <T>(parser: Parser<T>): Parser<T> =>
+  surroundedBy(optional(many(char(" "))), parser);
