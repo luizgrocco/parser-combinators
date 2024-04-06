@@ -487,5 +487,89 @@ Deno.test(function surroundedByTest() {
   );
 });
 
+const joinedBy = <T, Q>(
+  joiningParser: Parser<T>,
+  parser: Parser<Q>,
+): Parser<[Q, Q]> => and(succeededBy(joiningParser, parser), parser);
+
+Deno.test(function joinedByTest() {
+  // Passing cases
+  assertEquals(
+    joinedBy(char(","), literal("luiz"))("luiz,luiz"),
+    ok(["luiz", "luiz"], ""),
+  );
+  assertEquals(
+    joinedBy(char(","), spaced(literal("luiz")))("luiz, luiz"),
+    ok(["luiz", "luiz"], ""),
+  );
+  assertEquals(
+    joinedBy(char(","), spaced(literal("luiz")))("luiz  ,  luiz"),
+    ok(["luiz", "luiz"], ""),
+  );
+  // Failing cases
+  assertEquals(
+    joinedBy(char(","), spaced(literal("luiz")))("luiz  /  luiz"),
+    fail("luiz  /  luiz"),
+  );
+  assertEquals(
+    joinedBy(char(","), spaced(literal("luiz")))("luiz,beto"),
+    fail("luiz,beto"),
+  );
+  assertEquals(
+    joinedBy(char(","), spaced(literal("luiz")))("soraya, luiz"),
+    fail("soraya, luiz"),
+  );
+});
+
 const spaced = <T>(parser: Parser<T>): Parser<T> =>
   surroundedBy(optional(many(char(" "))), parser);
+
+Deno.test(function spacedTest() {
+  // Passing cases
+  assertEquals(spaced(char("c"))("        c"), ok("c", ""));
+  assertEquals(spaced(char("c"))("c        "), ok("c", ""));
+  assertEquals(spaced(char("c"))("    c    "), ok("c", ""));
+  assertEquals(spaced(char("c"))("cb  "), ok("c", "b  "));
+  // Failing cases
+  assertEquals(spaced(char("c"))("b  c"), fail("b  c"));
+  assertEquals(spaced(char("c"))("bc"), fail("bc"));
+  assertEquals(spaced(char("c"))("....c"), fail("....c"));
+});
+
+const positiveDigit = any(
+  char("1"),
+  char("2"),
+  char("3"),
+  char("4"),
+  char("5"),
+  char("6"),
+  char("7"),
+  char("8"),
+  char("9"),
+);
+
+const zero = char("0");
+
+const digit = any(zero, positiveDigit);
+
+const natural = map(
+  or(and(optional(many(zero)), many(positiveDigit)), many(zero)),
+  (a) => {
+  },
+);
+
+Deno.test(function naturalTest() {
+  // Passing cases
+  // assertEquals(natural("00000104"), ok());
+});
+
+// const letter = (c: Char) => (input: ParseInput) => {
+//   const [result, remainder] = char(c)(input);
+
+//   if (result.ok) {
+//     return ok<Uppercase<typeof result.value>>(
+//       result.value.toUpperCase(),
+//       remainder,
+//     );
+//   }
+// };
