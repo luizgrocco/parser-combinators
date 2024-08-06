@@ -5,8 +5,5 @@
   "compilerOptions": {
     "target": "esnext",
     "lib": ["dom", "dom.iterable", "dom.asynciterable", "deno.ns"]
-  },
-  "test": {
-    "include": ["main.ts"]
   }
 }
