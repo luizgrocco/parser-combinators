@@ -28,18 +28,27 @@ export const satisfy =
       ? succeed(input[0], input.slice(1))
       : fail(input, `failed to parse ${input[0]}`);
 
-export const char = <const T>(c: T): Parser<T> => (input: ParseInput) =>
-  input.length > 0 && input[0] === c ? succeed(c, input.slice(1)) : fail(
-    input,
-    input.length === 0
-      ? `failed to parse the char "${c}" on an empty input`
-      : `failed to parse the char "${c}" on input "${input}"`,
-  );
+export const char =
+  <const T extends string>(c: T): Parser<T> => (input: ParseInput) =>
+    input.length > 0 && input[0] === c ? succeed(c, input.slice(1)) : fail(
+      input,
+      input.length === 0
+        ? `failed to parse the char "${c}" on an empty input`
+        : `failed to parse the char "${c}" on input "${input}"`,
+    );
 
-export const empty: Parser<""> = (input: ParseInput) => [
-  { ok: true, value: "" },
-  input,
-];
+export const letter = <const T extends string>(c: T): Parser<Lowercase<T>> =>
+(
+  input: ParseInput,
+) => {
+  const [result, remainder] = or(char(c.toLowerCase()), char(c.toUpperCase()))(
+    input,
+  );
+  if (result.ok) return succeed(c.toLowerCase() as Lowercase<T>, remainder);
+  return fail(remainder, result.err.message);
+};
+
+export const empty: Parser<""> = (input: ParseInput) => succeed("", input);
 
 export const literal =
   <T extends string>(literal: T): Parser<T> => (input: ParseInput) =>
@@ -220,29 +229,133 @@ export const number = map(
       : parseFloat(integerPart + decimalPart.join("")),
 );
 
-// TODO: The letter parser probably also belongs in the library
-// const letter = (c: Char) => (input: ParseInput) => {
-//   const [result, remainder] = char(c)(input);
+// All code below this point I would consider to be USERLAND code, the essential parsers are already defined above
 
-//   if (result.ok) {
-//     return ok<Uppercase<typeof result.value>>(
-//       result.value.toUpperCase(),
-//       remainder,
-//     );
-//   }
-// };
+type Operators = "+" | "-" | "*" | "/" | "^";
 
-const mathOperators = any(
-  char("+"),
-  char("-"),
-  char("*"),
-  char("/"),
-  char("^")
-);
+const binaryOperations = (
+  leftArg: number,
+  rightArg: number,
+  operator: Operators,
+): number => {
+  let result: number;
 
-const mathExpression = map(
-  and(number, optional(many(and(mathOperators, number)))),
-  ([number, rest]) => ({ lhs: number, rhs: rest })
-);
+  switch (operator) {
+    case "+":
+      result = leftArg + rightArg;
+      break;
+    case "-":
+      result = leftArg - rightArg;
+      break;
+    case "*":
+      result = leftArg * rightArg;
+      break;
+    case "/":
+      result = leftArg / rightArg;
+      break;
+    case "^":
+      result = Math.pow(leftArg, rightArg);
+      break;
+  }
 
-// const mathParser = any(and(mathExpression, mathOperators) number)
+  return result;
+};
+
+const unnestExpression = (
+  [left, operator, right]: RecursiveOperation<Operators>,
+  operands: number[] = [],
+  operators: Operators[] = [],
+): { operands: number[]; operators: Operators[] } => {
+  operands.push(left);
+  operators.push(operator);
+
+  if (Array.isArray(right)) return unnestExpression(right, operands, operators);
+
+  operands.push(right);
+  return { operands, operators };
+};
+
+type RecursiveOperation<T extends Operators> = [
+  number,
+  T,
+  number | RecursiveOperation<T>,
+];
+
+const additiveTerm = (parseInput: ParseInput) => {
+  const parseAdditive = (recusiveInput: ParseInput) =>
+    or(
+      sequence(
+        spaced(multiplicativeTerm),
+        or(char("+"), char("-")),
+        parseAdditive,
+      ),
+      spaced(multiplicativeTerm),
+    )(recusiveInput);
+
+  return map(parseAdditive, (addtiveTerms) => {
+    if (!Array.isArray(addtiveTerms)) return addtiveTerms;
+
+    const { operands, operators } = unnestExpression(
+      addtiveTerms as RecursiveOperation<Operators>,
+    );
+    return operands.reduce((acc, num) =>
+      binaryOperations(acc, num, operators.shift()!)
+    );
+  })(parseInput);
+};
+
+const multiplicativeTerm = (parseInput: ParseInput) => {
+  const parseMultiplicative = (recusiveInput: ParseInput) =>
+    or(
+      sequence(
+        spaced(exponentiationTerm),
+        or(char("*"), char("/")),
+        parseMultiplicative,
+      ),
+      spaced(exponentiationTerm),
+    )(recusiveInput);
+  return map(parseMultiplicative, (multTerms) => {
+    if (!Array.isArray(multTerms)) return multTerms;
+    console.log(multTerms);
+
+    const { operands, operators } = unnestExpression(
+      multTerms as RecursiveOperation<Operators>,
+    );
+
+    return operands.reduce((acc, num) =>
+      binaryOperations(acc, num, operators.shift()!)
+    );
+  })(parseInput);
+};
+
+const exponentiationTerm = (parseInput: ParseInput) => {
+  const parseExponentiation = (recursiveInput: ParseInput) =>
+    or(
+      sequence(spaced(parenthesizedTerm), char("^"), parseExponentiation),
+      spaced(parenthesizedTerm),
+    )(
+      recursiveInput,
+    );
+  return map(parseExponentiation, (expoTerms) => {
+    if (!Array.isArray(expoTerms)) return expoTerms;
+
+    const { operands, operators } = unnestExpression(
+      expoTerms as RecursiveOperation<Operators>,
+    );
+    return operands.reduce((acc, num) =>
+      binaryOperations(acc, num, operators.shift()!)
+    );
+  })(parseInput);
+};
+
+const parenthesizedTerm: Parser<number> = (parseInput: ParseInput) =>
+  or(
+    delimitedBy(spaced(char("(")), spaced(char(")")), additiveTerm),
+    spaced(number),
+  )(
+    parseInput,
+  );
+
+const formula = "2 / 2 * 4 ^ 3 * 4 ^ 1 - 1 - 4 + (4 - 4)";
+const expression = additiveTerm(formula);
+console.log(expression);

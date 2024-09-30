@@ -8,6 +8,7 @@ import {
   fail,
   integer,
   joinedBy,
+  letter,
   literal,
   map,
   natural,
@@ -51,6 +52,23 @@ Deno.test(function charTest() {
   assertEquals(char_l("Luiz"), fail("Luiz"));
   assertEquals(char_Z("z"), fail("z"));
   assertEquals(char_a("A"), fail("A"));
+});
+
+Deno.test(function letterTest() {
+  const letter_a = letter("a");
+  const letter_l = letter("l");
+  const letter_Z = letter("Z");
+
+  // Passing cases
+  assertEquals(letter_a("A"), succeed("a", ""));
+  assertEquals(letter_a("abc"), succeed("a", "bc"));
+  assertEquals(letter_Z("Zillow"), succeed("z", "illow"));
+  assertEquals(letter_Z("zillow"), succeed("z", "illow"));
+  assertEquals(letter_l("luiz"), succeed("l", "uiz"));
+  assertEquals(letter_l("Luiz"), succeed("l", "uiz"));
+  // Failing cases
+  assertEquals(letter_a("b"), fail("b"));
+  assertEquals(letter_l("a"), fail("a"));
 });
 
 Deno.test(function emptyTest() {
